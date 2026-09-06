@@ -1,6 +1,6 @@
 # Design: Yahoo Pro Pick'em Recommendation Agent
 
-Status: Draft v0.5 — no open decisions remain (see §10); companion to `PRD.md`, translating product
+Status: Draft v0.6 — no open decisions remain (see §10); companion to `PRD.md`, translating product
 requirements into concrete architecture. Assumes familiarity with PRD §9 (Architecture) and §10
 (Backtesting Harness).
 
@@ -82,12 +82,17 @@ class AgentPrediction(TypedDict):
     predicted_winner: str
     win_probability: float
     rationale: str
+    predicted_home_score: NotRequired[float]   # PRD FR9, Milestone G — only the strategy
+    predicted_away_score: NotRequired[float]   # promoted in Milestone F populates these; all
+                                                # other (pre-existing) strategies omit them
 
 class Pick(TypedDict):
     game_id: str
     predicted_winner: str
     win_probability: float
     confidence: int              # 1..N
+    predicted_home_score: NotRequired[float]
+    predicted_away_score: NotRequired[float]
 
 class PickemState(TypedDict):
     run_id: str
@@ -229,11 +234,13 @@ CREATE TABLE week_sync (
 );
 
 CREATE TABLE picks (
-    run_id             TEXT NOT NULL REFERENCES runs(run_id),
-    game_id            TEXT NOT NULL REFERENCES games(game_id),
-    predicted_winner   TEXT NOT NULL,
-    win_probability    REAL NOT NULL,
-    confidence         INTEGER NOT NULL,
+    run_id                TEXT NOT NULL REFERENCES runs(run_id),
+    game_id               TEXT NOT NULL REFERENCES games(game_id),
+    predicted_winner      TEXT NOT NULL,
+    win_probability       REAL NOT NULL,
+    predicted_home_score  REAL,   -- PRD FR9; nullable so pre-Milestone-G rows stay valid
+    predicted_away_score  REAL,
+    confidence            INTEGER NOT NULL,
     PRIMARY KEY (run_id, game_id)
 );
 
@@ -402,7 +409,11 @@ during a backtest — see §9.1's walk-forward constraint — never from a seaso
 ## 8. Reporting Agent
 
 - **CLI table**: formatted (e.g. via `rich`), sorted by confidence descending — winner,
-  confidence, win probability.
+  confidence, win probability, predicted score for each team (FR9).
+- **Weekly extremes summary** (FR9): after the table, one line naming the single team predicted
+  to score highest and the single team predicted to score lowest across that week's whole slate —
+  derived from the same `picks.predicted_*_score` values already in the table, not a separate
+  model call.
 - **Charts** (matplotlib, saved under `reports/<season>/<week>/`): weekly calibration scatter
   (predicted probability vs. assigned confidence), season cumulative-points line chart; for
   backtests, a comparison chart across grid cells.
@@ -507,5 +518,13 @@ All decisions raised during design review are confirmed as proposed:
    skip-with-warning for `backtest` sweeps.
 6. **Evaluation reports** (§9.4): a single self-contained `report.html` per backtest batch, not a
    folder of loose chart files.
+7. **Predicted scores are additive, not a replacement** (PRD FR9): every strategy keeps producing
+   `win_probability`/`predicted_winner` exactly as before — FR1 ranking and FR5 grading are
+   untouched. `predicted_home_score`/`predicted_away_score` are `NotRequired[float]` fields that
+   only the single strategy promoted in Milestone F is required to populate — not all 5 registered
+   strategies or the 2 baselines. Since FR9 is display-only and never feeds backtest grading,
+   there's no evaluation reason to build score-prediction logic for designs that never run live;
+   doing so before Milestone F names a winner would mean building it for configs that get thrown
+   away. This is also why Milestone G is sequenced strictly after Milestone F, not before it.
 
 No open decisions remain — DESIGN.md is ready to drive a task breakdown.

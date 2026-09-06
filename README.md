@@ -131,6 +131,6 @@ Built as a sequence of milestones, each producing something runnable before the 
 - [x] **D — Backtesting harness** — `backtest` walk-forward replay, verified point-in-time safe
 - [x] **E — Evaluation & reporting** — `report.html` leaderboard, calibration and season-trend charts, baselines
 - [ ] **F — Promotion & hardening** — run the full historical grid, hand-pick and promote the production config, swap the placeholder cloud model for a real local one, and do a first full live dry run
-- [ ] **G — Score prediction & weekly extremes** — predict a final score for each team in every game, and surface the single team predicted to score highest and the single team predicted to score lowest across the whole week's slate (display/analysis only — never feeds confidence ranking or point scoring)
+- [ ] **G — Score prediction & weekly extremes** *(depends on F — only built for whichever config F promotes)* — predict a final score for each team in every game, and surface the single team predicted to score highest and the single team predicted to score lowest across the whole week's slate (display/analysis only — never feeds confidence ranking or point scoring)
 
 Nothing here has been promoted to production yet — `config.toml` still holds Milestone A's placeholder config, not a backtest-selected one.

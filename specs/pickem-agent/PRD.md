@@ -1,6 +1,6 @@
 # PRD: Yahoo Pro Pick'em Recommendation Agent
 
-Status: Draft v0.3 — no blocking open questions remain; a few implementation-level refinements are noted in §13.
+Status: Draft v0.4 — no blocking open questions remain; a few implementation-level refinements are noted in §13.
 
 ## 1. Problem Statement
 
@@ -68,9 +68,11 @@ repetitive and error-prone. This agent automates that conversion and the scoring
 ## 7. Outputs
 
 - **Weekly picks artifact**: CLI output — for the week's N games, the picked winner, assigned
-  confidence value (1..N, descending = most confident), and the model's underlying win probability
-  for that pick, sorted by confidence descending and formatted for easy manual transcription into
-  Yahoo.
+  confidence value (1..N, descending = most confident), the model's underlying win probability
+  for that pick, and a predicted final score for each team, sorted by confidence descending and
+  formatted for easy manual transcription into Yahoo. Also names the single team predicted to
+  post the highest score and the single team predicted to post the lowest score across that
+  whole week's slate (FR9).
 - **Results record**: after games complete, actual winner, hit/miss per pick, points earned, and
   running season total.
 - **Visual reports**: charts covering weekly calibration (predicted probability vs. assigned
@@ -109,6 +111,12 @@ repetitive and error-prone. This agent automates that conversion and the scoring
   choice, and context richness/data level. See §10.
 - **FR8 — Visualization**: Generate charts alongside the CLI/table output — weekly calibration,
   season-to-date trend, and cross-design backtest comparisons (see §7, §10).
+- **FR9 — Score prediction & weekly extremes**: Alongside the winner/probability pick already
+  required by FR1, produce a predicted final score for each team in every game, and surface the
+  single team predicted to score highest and the single team predicted to score lowest across the
+  entire week's slate. This is display/analysis output only — it never feeds FR1's confidence
+  ranking or FR5's point scoring, since the league grades strictly on correct-winner + confidence
+  rank, never on margin (§13).
 
 ## 9. Architecture: Multi-Agent Design (LangGraph)
 

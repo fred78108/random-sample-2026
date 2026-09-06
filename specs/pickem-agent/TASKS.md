@@ -299,3 +299,45 @@ Goal: go from "the harness works" to "a specific config is trusted for the live 
       node never calls `upsert_score`. All 52 pickem tests pass (`python -m pytest tests/pickem/`).
 - [ ] First full live dry run: `pickem recommend` for a real week with the promoted config, manual
       transcription into Yahoo, `pickem score` the following week.
+
+## Milestone G — Score Prediction & Weekly Extremes
+
+Goal: every `recommend` run also predicts a final score for each team in every game, and names the
+single team predicted to score highest and the single team predicted to score lowest across that
+week's whole slate (PRD FR9, DESIGN §10 decision #7). Purely additive — FR1's confidence ranking
+and FR5's point scoring are untouched, since Yahoo grades on correct-winner + confidence rank only,
+never margin.
+
+**Scope note (depends on Milestone F):** this only needs to be built for the single `agent_design`/
+`prompt_variant` combo Milestone F actually promotes to `config.toml` — not all 5 registered
+strategies or the 2 baselines. FR9 doesn't feed backtest grading, so there's no evaluation reason
+to compute predicted scores for designs that never run live; building combination logic for all 7
+registry entries before F has even named a winner would mean throwing away most of that work.
+`predicted_home_score`/`predicted_away_score` are therefore optional (`NotRequired[float]`) fields
+in `AgentPrediction`/`Pick` — only the promoted strategy is required to populate them, the rest can
+leave them unset. **This is why G is sequenced after F, not before.**
+
+- [ ] `state.py`: add `predicted_home_score`/`predicted_away_score` as `NotRequired[float]` on
+      `AgentPrediction` and `Pick` (DESIGN §3.1) — optional so unrelated strategies aren't forced to
+      implement them.
+- [ ] `db/schema.sql`: add nullable `predicted_home_score`/`predicted_away_score` columns to
+      `picks`; runtime migration for existing `pickem.db` files, same `PRAGMA table_info` pattern
+      as Milestone C's `games` migration (`repository._migrate_games_table`) — needed since sqlite3
+      has no `ADD COLUMN IF NOT EXISTS`.
+- [ ] Extend only the promoted strategy's prompt template(s) and structured-output schema to
+      request `predicted_home_score`/`predicted_away_score` alongside the existing winner/
+      probability/rationale fields, plus that strategy's own combination logic for the new fields
+      (mirroring however it already combines `win_probability` — pass-through, weighted average,
+      synthesis/judge call, whichever applies to the actual promoted design). The other 4
+      strategies and 2 baselines are left untouched; add their score logic later only if a future
+      backtest is specifically re-scoped to evaluate score-prediction quality.
+- [ ] `nodes/reporting.py`: add predicted-score columns to the CLI table; print the week's single
+      highest-predicted-score team and single lowest-predicted-score team across all games (this is
+      a week-wide extremum over individual team scores, not a per-game high/low — the per-game
+      favorite is already implied by the winner pick). Decide and document a tie-breaking rule
+      (e.g. earliest kickoff wins ties). Since only the live promoted config populates the score
+      fields, this only needs to handle the `run_type="live"` path, not backtest sweeps.
+- [ ] Unit tests: schema migration and the weekly highest/lowest-score selection including the
+      tie-break rule, exercised against the promoted strategy's combination logic.
+- [ ] Manual smoke test: run `recommend` for a real week, confirm predicted scores print per game
+      and the weekly high/low summary matches a hand-check of the printed per-game scores.
