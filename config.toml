@@ -1,0 +1,10 @@
+# Production config for `pickem recommend`. Hand-set placeholder for Milestone A;
+# real promotion (based on backtest results) happens in Milestone F.
+agent_design = "single_analyst"
+prompt_variant = "single_analyst_v1"
+# Temporary: Ollama cloud-routed model, used only to prove the wiring end to end for
+# Milestone A's smoke test. Swap for a real local model (e.g. "llama3.1:8b") before
+# any live/production use — a cloud model breaks the design's no-data-leaves-the-
+# machine / no-per-call-cost intent (DESIGN §7, PRD §11).
+model = "glm-5.3-flash:cloud"
+context_level = "minimal"
