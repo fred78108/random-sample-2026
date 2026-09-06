@@ -1,5 +1,5 @@
 # Random Sample - 2026 season
-For this season's experiment I'm returning to my roots with AI again. Going to use a bit of Spec Driven Development here. not going to limit to just AI created but rather, perform a combination of SDD for the infrastructure/scaffolding and I'll focus on the model design.
+For this season's experiment I'm returning to my roots with AI again (the last couple of seasons I've been truly randomly picking the winners due to lack of time). Going to use a bit of Spec Driven Development here. not going to limit to just AI created but rather, perform a combination of SDD for the infrastructure/scaffolding and I'll focus on the model design.
 
 # Architecture
 The Yahoo Pro Pick'em agent is a multi-agent system orchestrated with [LangGraph](https://github.com/langchain-ai/langgraph) rather than a single script: a graph of specialized agents (schedule resolution, prediction, confidence ranking, validation, and reporting) hands state to one another, with a validation loop that can send bad output back for re-ranking. See [specs/pickem-agent/PRD.md](specs/pickem-agent/PRD.md) for the full spec.
