@@ -81,8 +81,53 @@ flowchart LR
 No new prompt at all — this reuses the baseline single-analyst call verbatim, but samples it N times (5 in v1) and combines the results in code by vote/average, the same way Specialist Deterministic combines its specialists. The bet is that sampling variance itself carries signal: if the model flips its pick across samples, that instability is informative, and averaging over it should be more robust than trusting any one sample — at the cost of N× the calls of the baseline for the same context.
 
 # Dataset
-Using [nflverse](https://github.com/nflverse) for NFL game data — free, no subscription or API key required, and covers both historical (back to 1999) and current season data, updated nightly in-season.
+Using [nflverse](https://github.com/nflverse) for NFL game data — free, no subscription or API key required, and covers both historical (back to 1999) and current season data, updated nightly in-season. Access is via [nflreadpy](https://pypi.org/project/nfl-data-py/) (Python; R users have the equivalent [nflreadr](https://nflreadr.nflverse.com/)), reading published CSV/parquet/RDS releases from [nflverse/nfldata](https://github.com/nflverse/nfldata) and [nflverse/nflverse-data](https://github.com/nflverse/nflverse-data).
 
-- Data: [nflverse/nfldata](https://github.com/nflverse/nfldata) and [nflverse/nflverse-data](https://github.com/nflverse/nflverse-data) (play-by-play, schedules, rosters, betting lines, etc. as CSV/parquet/RDS releases)
-- Python access: [nfl_data_py](https://pypi.org/project/nfl-data-py/) / nflreadpy
-- R access: [nflreadr](https://nflreadr.nflverse.com/)
+The agent only ever pulls three nflverse tables, and only the regular season (`game_type == "REG"`) slice of each:
+
+| Table (`nflreadpy` call) | What it provides here | Used by |
+| --- | --- | --- |
+| `load_schedules` | Game IDs, kickoff time, scores, and — already columns on this same table, so no extra fetch — rest days, divisional-game flag, roof/surface, and the closing spread/total/moneyline lines | Schedule Agent; the `situational` and `market` specialist roles (§ Design Options); the market-favorite baseline |
+| `load_team_stats` | Per-game passing/rushing EPA and play counts, used to derive offensive/defensive EPA-per-play | `standard`/`rich` context tiers only |
+| `load_injuries` | Weekly injury report status (Out/Doubtful/Questionable) per team | `rich` context tier only, best-effort — nflverse's injury coverage varies by season, so a missing report just yields zero counts rather than an error |
+
+Team record, point differential, last-5-games form, and head-to-head history are *not* separate nflverse datasets — they're computed locally from the cached schedule table, and always **point-in-time**: only games completed strictly before the target week are considered, so backtests never leak a team's future results into a past prediction (see [specs/pickem-agent/DESIGN.md §6](specs/pickem-agent/DESIGN.md)).
+
+How much of this a given game actually sees depends on its `context_level`:
+
+- **minimal** — record and point differential only
+- **standard** — + recent form (last 5 games) and EPA-per-play
+- **rich** — + head-to-head history, the market line, and injury counts
+
+Fetched data is cached in SQLite, refreshed at most once per season per call (not per game) and only when a week isn't yet marked final — see [nflverse_client.py](src/random_sample/pickem/nflverse_client.py).
+
+# Setup & Usage
+Requires Python 3.12+ and a running [Ollama](https://ollama.com) instance (the LLM calls are designed to stay local — no per-call API cost, no data leaving the machine).
+
+```bash
+uv sync
+ollama pull <model>   # whatever `model` in config.toml points at
+```
+
+Everything runs through the `pickem` CLI (installed as a project script):
+
+- `pickem recommend [--week N] [--season Y]` — run the graph once with the production config in [config.toml](config.toml), print and persist that week's picks. Defaults to the upcoming week.
+- `pickem score [--week N] [--season Y]` — grade a week's already-recorded live picks against real results and print the season-to-date point total. Defaults to the most recently *completed* week.
+- `pickem backtest --seasons ... --agent-design ... --prompt-variant ... --model ... --context-level ...` — walk-forward replay of a config grid across historical seasons. All five flags are required, comma-separated lists (`--seasons` also accepts ranges like `2022-2024`) — there's no sensible "run everything" default given the size of the full cross-product.
+- `pickem report --seasons ...` — build a self-contained `report.html` (leaderboard, calibration chart, season trends) from whatever `backtest` runs are already on file for those seasons.
+
+All state — cached nflverse data, picks, scores, and the LLM response cache — lives in a local SQLite file (`pickem.db`, gitignored, created on first run).
+
+**Note:** [config.toml](config.toml)'s model is currently a `:cloud`-routed Ollama model, a placeholder used only to prove the wiring end to end — swap it for a real local model before any live/production use.
+
+# Status
+Built as a sequence of milestones, each producing something runnable before the next adds scope (full detail in [specs/pickem-agent/TASKS.md](specs/pickem-agent/TASKS.md)):
+
+- [x] **A — Vertical slice** — `recommend` works end-to-end for `single_analyst`
+- [x] **B — Result ingestion** — `score` grades live picks against real outcomes
+- [x] **C — Remaining strategies** — all 5 design strategies (§ Design Options) runnable via `recommend`
+- [x] **D — Backtesting harness** — `backtest` walk-forward replay, verified point-in-time safe
+- [x] **E — Evaluation & reporting** — `report.html` leaderboard, calibration and season-trend charts, baselines
+- [ ] **F — Promotion & hardening** — run the full historical grid, hand-pick and promote the production config, swap the placeholder cloud model for a real local one, and do a first full live dry run
+
+Nothing here has been promoted to production yet — `config.toml` still holds Milestone A's placeholder config, not a backtest-selected one.
