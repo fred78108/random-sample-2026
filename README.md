@@ -1,5 +1,7 @@
 # Random Sample - 2026 season
-For this season's experiment I'm returning to my roots with AI again (the last couple of seasons I've been truly randomly picking the winners due to lack of time). Going to use a bit of Spec Driven Development here. not going to limit to just AI created but rather, perform a combination of SDD for the infrastructure/scaffolding and I'll focus on the model design.
+For this season's experiment I'm returning to my roots with AI again (the last couple of seasons I've been truly randomly picking the winners due to lack of time). Going to use a bit of Spec Driven Development (SDD) here. not going to limit to just AI created but rather, perform a combination of SDD for the infrastructure/scaffolding and I'll focus on the model design.
+
+My motivation this year for SDD is that this appears to be a more common approach. This is a good use case for getting more hands-on experience with this development approach. I'm also going with a more Agentic solution over traditional machine learning or math equation like I've done in the past. The motivation for Agentic is purely to try it. This is a pattern I have node attempted before for Yahoo Pro Pick'em.
 
 # Architecture
 The Yahoo Pro Pick'em agent is a multi-agent system orchestrated with [LangGraph](https://github.com/langchain-ai/langgraph) rather than a single script: a graph of specialized agents (schedule resolution, prediction, confidence ranking, validation, and reporting) hands state to one another, with a validation loop that can send bad output back for re-ranking. See [specs/pickem-agent/PRD.md](specs/pickem-agent/PRD.md) for the full spec.
@@ -129,5 +131,6 @@ Built as a sequence of milestones, each producing something runnable before the 
 - [x] **D — Backtesting harness** — `backtest` walk-forward replay, verified point-in-time safe
 - [x] **E — Evaluation & reporting** — `report.html` leaderboard, calibration and season-trend charts, baselines
 - [ ] **F — Promotion & hardening** — run the full historical grid, hand-pick and promote the production config, swap the placeholder cloud model for a real local one, and do a first full live dry run
+- [ ] **G — Score prediction & weekly extremes** — predict a final score for each team in every game, and surface the single team predicted to score highest and the single team predicted to score lowest across the whole week's slate (display/analysis only — never feeds confidence ranking or point scoring)
 
 Nothing here has been promoted to production yet — `config.toml` still holds Milestone A's placeholder config, not a backtest-selected one.
