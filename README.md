@@ -3,6 +3,18 @@ For this season's experiment I'm returning to my roots with AI again (the last c
 
 My motivation this year for SDD is that this appears to be a more common approach. This is a good use case for getting more hands-on experience with this development approach. I'm also going with a more Agentic solution over traditional machine learning or math equation like I've done in the past. The motivation for Agentic is purely to try it. This is a pattern I have node attempted before for Yahoo Pro Pick'em.
 
+
+# Rules
+Some years I don't let myself adjust or modify the code or math involved. This has produced some "interesting results." For this year I am going hold myself to:
+
+1. No direct development! all code MUST be via SDD.
+2. Ok to update prompts through the season.
+3. Ok to fix bugs.
+4. Not ok to introduce a new agent type once the season has started. This agent will need to perform on its own once the season starts.
+5. Not ok to replace with another candidate. Once I select the agent design I will stick with that design for the season.
+6. No "helping." The prediction is the prediction. If I as the human have some data such as a team sitting a starter or extreme weather I will not adjust the predictions. I will rely only on the agent predictions.
+
+
 # Architecture
 The Yahoo Pro Pick'em agent is a multi-agent system orchestrated with [LangGraph](https://github.com/langchain-ai/langgraph) rather than a single script: a graph of specialized agents (schedule resolution, prediction, confidence ranking, validation, and reporting) hands state to one another, with a validation loop that can send bad output back for re-ranking. See [specs/pickem-agent/PRD.md](specs/pickem-agent/PRD.md) for the full spec.
 
