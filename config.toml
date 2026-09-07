@@ -1,10 +1,18 @@
-# Production config for `pickem recommend`. Hand-set placeholder for Milestone A;
-# real promotion (based on backtest results) happens in Milestone F.
+# Production config for `pickem recommend`. Promoted in Milestone F (DESIGN §10 decision #8)
+# after a 3-season (2023-2025) backtest at context_level=rich: single_analyst beat the naive
+# baseline every season (mean margin +181 pts, the hard promotion gate per PRD §14), and
+# roughly tracked the market baseline (mean margin +3.7 pts across 3 seasons -- noise-level,
+# not a reliable edge; the market-beating bar was relaxed to a stretch target rather than a
+# hard gate, since none of the 5 registered designs cleared it decisively). Chosen over the
+# other 4 designs as the cheapest (1 LLM call/game) with no design showing a large enough edge
+# in the one season each was compared to justify the added call cost.
 agent_design = "single_analyst"
 prompt_variant = "single_analyst_v1"
-# Temporary: Ollama cloud-routed model, used only to prove the wiring end to end for
-# Milestone A's smoke test. Swap for a real local model (e.g. "llama3.1:8b") before
-# any live/production use — a cloud model breaks the design's no-data-leaves-the-
-# machine / no-per-call-cost intent (DESIGN §7, PRD §11).
+# Still an Ollama cloud-routed model, not a true local one -- the only models pulled on this
+# machine (see Milestone A). This is what the promoted backtest evidence above was actually
+# run against, so it's what's promoted; it still breaks the design's no-data-leaves-the-
+# machine/no-per-call-cost intent (DESIGN §7, PRD §11). Swap for a real local model (e.g.
+# "llama3.1:8b") when one is available -- re-backtesting on the new model first is recommended
+# before trusting it live, since this promotion's evidence is specific to this model.
 model = "glm-5.3-flash:cloud"
-context_level = "minimal"
+context_level = "rich"

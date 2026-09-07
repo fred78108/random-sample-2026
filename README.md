@@ -13,6 +13,7 @@ Some years I don't let myself adjust or modify the code or math involved. This h
 4. Not ok to introduce a new agent type once the season has started. This agent will need to perform on its own once the season starts.
 5. Not ok to replace with another candidate. Once I select the agent design I will stick with that design for the season.
 6. No "helping." The prediction is the prediction. If I as the human have some data such as a team sitting a starter or extreme weather I will not adjust the predictions. I will rely only on the agent predictions.
+7. Ok to use different models.
 
 
 # Architecture

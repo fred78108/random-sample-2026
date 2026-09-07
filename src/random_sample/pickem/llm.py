@@ -13,7 +13,7 @@ import time
 import httpx
 import ollama
 from langchain_ollama import ChatOllama
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from random_sample.pickem.db import repository
 from random_sample.pickem.state import AgentPrediction
@@ -30,7 +30,20 @@ BASE_BACKOFF_SECONDS = 2.0
 MAX_BACKOFF_SECONDS = 60.0
 
 
+class StructuredOutputParseError(Exception):
+    """Raised when `with_structured_output` returns `None` instead of raising — the model's
+    response couldn't be parsed into the expected schema. Treated as retryable the same as a
+    transient network/throttling failure, since a fresh sample from the same prompt often
+    succeeds (observed against `glm-5.3-flash:cloud` during the Milestone F 2025 backtest)."""
+
+
 def _is_retryable(exc: Exception) -> bool:
+    if isinstance(exc, (StructuredOutputParseError, ValidationError)):
+        # ValidationError = the model's function-call args didn't satisfy PredictionOutput's
+        # schema (e.g. a missing field) -- the same "malformed sample" failure class as a
+        # None result, just surfaced differently. Observed for real: glm-5.3-flash:cloud
+        # omitting `rationale` during the Milestone F 2025 rich-tier backtest.
+        return True
     if isinstance(exc, ollama.ResponseError):
         # 429 = throttled; 5xx = transient upstream failure. 4xx other than 429 (bad
         # request, model not found, etc.) is not something a retry will fix.
@@ -44,7 +57,12 @@ def _is_retryable(exc: Exception) -> bool:
 def _invoke_with_retry(structured_llm, prompt_text: str) -> "PredictionOutput":
     for attempt in range(MAX_LLM_RETRIES + 1):
         try:
-            return structured_llm.invoke(prompt_text)
+            result = structured_llm.invoke(prompt_text)
+            if result is None:
+                raise StructuredOutputParseError(
+                    "model response could not be parsed into the expected schema"
+                )
+            return result
         except Exception as exc:  # noqa: BLE001 - deliberately broad, filtered by _is_retryable
             if attempt >= MAX_LLM_RETRIES or not _is_retryable(exc):
                 raise

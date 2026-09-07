@@ -278,10 +278,79 @@ not just raw rows.
 
 Goal: go from "the harness works" to "a specific config is trusted for the live season."
 
-- [ ] Run the harness across the intended historical seasons with a targeted grid subset (DESIGN
+- [x] Run the harness across the intended historical seasons with a targeted grid subset (DESIGN
       §3.3 notes the full cross-product is expected to be impractical at first — see PRD §14).
-- [ ] Review `report.html`; select and hand-set the production config in `config.toml` (DESIGN §5
-      — promotion is manual, never automatic).
+      Scope chosen with the user given real cost/time constraints: only `:cloud`-routed Ollama
+      models exist on this machine (no true local model pulled) and the full 3-season × 5-design ×
+      3-tier grid was ~41k sequential LLM calls at the measured ~1.7s/call — impractical to run in
+      one pass. Ran **2025 only, all 5 designs, `standard` context tier, `glm-5.3-flash:cloud`**
+      (~4,300 calls, ~3 hours), plus `naive_favorite`/`market_favorite` baselines (zero LLM cost).
+      Found and fixed a real bug this run surfaced: `with_structured_output` can return `None` on a
+      parse failure instead of raising, which the new retry wrapper didn't catch, crashing 3 of 90
+      grid cells with `AttributeError: 'NoneType' object has no attribute 'model_dump'`. Added
+      `llm.StructuredOutputParseError` (raised when the result is `None`, caught as retryable like
+      throttling/network errors) plus regression tests (`tests/pickem/test_llm_retry.py`); re-ran
+      and all 3 previously-failed cells completed cleanly. Also added throttling resilience per user
+      request: `llm.py`'s `_invoke_with_retry` (exponential backoff + full jitter, 6 retries, on
+      HTTP 429/5xx/connection errors) and harness-level fault tolerance (`backtest/harness.py`
+      catches a per-cell exception, logs it, and continues rather than aborting the whole sweep —
+      `runs_failed` in `BacktestSummary`/CLI output; a failed cell has no `runs` row, so re-invoking
+      the same `pickem backtest` command picks it back up via existing grid-cell idempotency,
+      without redoing any already-cached LLM call or already-completed cell).
+      **Result** (`reports/backtest/20260906T170722Z/report.html`, sent to the user): all 5 designs
+      beat `naive_favorite` (1453 pts) — `debate_advocate` best at 1526 (+73), then
+      `ensemble_self_consistency` 1496, `single_analyst` 1480, `specialist_synthesis` 1479,
+      `specialist_deterministic` 1473. **None beat the real `market_favorite` baseline** (1577 pts,
+      run at `rich` tier — the only tier where it isn't a degenerate home-field-only default; a
+      first attempt at averaging a `standard`-tier `market_favorite` run into the baseline was
+      corrected and removed since that tier's value isn't real market signal and was diluting the
+      comparison). Per DESIGN §9.3's own stated bar ("can't beat the market baseline... isn't a
+      promotion candidate"), no design cleared it at `standard` tier.
+      **Follow-up at `rich` tier** (user's request, after discussing where the market baseline data
+      comes from and noting the `market` feature slice — and therefore every design's access to it —
+      only exists at `rich`, DESIGN §3.3/§6): re-ran all 5 designs at `context_level=rich`, same
+      season/model. Surfaced two more real bugs the same way as before — a malformed function-call
+      response can also raise `pydantic.ValidationError` (observed: model omitted the required
+      `rationale` field) rather than returning `None`, going unretried for the same reason;
+      `_is_retryable` now also catches `ValidationError`, with a regression test. Result
+      (`reports/backtest/20260907T121314Z/report.html`, sent to the user): **every design now beats
+      the real market baseline** — `single_analyst` 1602 (market +25, naive +149),
+      `specialist_deterministic` 1590 (+13/+137), `debate_advocate` 1588 (+11/+135),
+      `specialist_synthesis` 1587 (+10/+134), `ensemble_self_consistency` 1586 (+9/+133), vs.
+      `market_favorite` 1577 and `naive_favorite` 1453. The margins over market are small (9-25 pts
+      out of ~1600, all 5 designs within a 16-point band of each other) and this is still a single
+      season — DESIGN §9.3 explicitly warns against promoting on one season alone — so this reads as
+      "the whole approach clears the bar once it can see market data" rather than "`single_analyst`
+      is decisively the best design."
+- [x] Review `report.html`; select and hand-set the production config in `config.toml` (DESIGN §5
+      — promotion is manual, never automatic). Given how tight the single-season `rich`-tier margins
+      were, the user asked to widen to more seasons on `single_analyst` specifically before deciding
+      (rather than resweep all 5 designs across seasons — the cost of doing that for all 5 would
+      have been the original ~41k-call problem again). Ran `single_analyst`/`rich` (+ baselines) for
+      2024 then 2023 (`reports/backtest/20260907T124810Z/report.html`,
+      `reports/backtest/20260907T132423Z/report.html`, both sent to the user). One real mistake made
+      and caught mid-run: the first 2024 invocation crossed both `--prompt-variant` and `--model`
+      lists, which — since baseline strategies' `required_roles=()` trivially satisfies any prompt
+      set, and role-compatibility never checks `model` — silently created a `single_analyst`+
+      `model=none` grid cell (would have wasted ~30-45 min retrying against a nonexistent model)
+      plus 8 duplicate baseline rows differing only in irrelevant `model`/`prompt_variant` labels;
+      caught from the log tail, process killed, junk rows deleted (kept the one good week already
+      computed), re-ran with a correctly single-value grid per invocation.
+      **3-season result (2023-2025, `single_analyst`/`rich`)**: beat `naive_favorite` in every
+      season (mean margin +181 pts, low relative variance) but did *not* reliably beat
+      `market_favorite` — mean margin only +3.7 pts across 3 seasons (stdev ~70-72 pts on both
+      sides), losing outright in 2 of 3 seasons (2023: 1531 vs 1538; 2024: 1672 vs 1679) and winning
+      only 2025 (1602 vs 1577). Beating real market odds turned out to be a much harder bar than
+      DESIGN §9.3 anticipated pre-implementation.
+      **Decision** (user, given this evidence): change the promotion bar from "must beat market" to
+      "must beat naive (met); market is a stretch target, not a hard gate" — documented as DESIGN
+      §10 decision #8, with §9.3 and PRD §14 updated to match. Promoted **`single_analyst` /
+      `single_analyst_v1` / `glm-5.3-flash:cloud` / `rich`** to `config.toml` — chosen over the
+      other 4 designs as the cheapest (1 LLM call/game) with no design showing a large enough edge
+      in their one season of `rich`-tier data (Milestone F's first bullet, above) to justify the
+      added call cost. Still a `:cloud`-routed model, not a true local one (unchanged caveat from
+      Milestone A) — `config.toml` documents this and recommends re-backtesting before trusting a
+      future local-model swap, since this promotion's evidence is specific to this model.
 - [x] Unit tests: ranking algorithm (expected-points-maximizing permutation), validator edge cases
       (missing game, duplicate confidence, out-of-range probability), `current_week` boundary
       cases (pre-season, mid-week, post-Monday-night rollover). New `tests/pickem/test_ranking.py`
@@ -298,7 +367,13 @@ Goal: go from "the harness works" to "a specific config is trusted for the live 
       and asserts `scoring.score_week` never calls `insert_run`/`insert_picks`, and the reporting
       node never calls `upsert_score`. All 52 pickem tests pass (`python -m pytest tests/pickem/`).
 - [ ] First full live dry run: `pickem recommend` for a real week with the promoted config, manual
-      transcription into Yahoo, `pickem score` the following week.
+      transcription into Yahoo, `pickem score` the following week. First two steps done: ran
+      `pickem recommend --season 2026 --week 1` with the promoted `single_analyst`/`rich` config
+      (16/16 games, valid confidence permutation, persisted as a `live` run), and the user has
+      transcribed those picks into Yahoo. Last step — `pickem score` — is blocked on the calendar,
+      not on us: week 1 kicks off 2026-09-09 and isn't final until Monday Night Football wraps
+      (~2026-09-15). Nothing left to do here until then; run `pickem score` once the week is over
+      (it resolves the right week by default) to close this out.
 
 ## Milestone G — Score Prediction & Weekly Extremes
 

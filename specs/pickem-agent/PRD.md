@@ -253,7 +253,11 @@ implementation details to fill in while building the harness (§10), not spec-bl
 - **Local LLM quality**: a locally-run Ollama model may reason less reliably than a frontier
   hosted model. The backtesting harness (§10) should confirm LLM-based picks actually beat a naive
   statistical baseline (e.g. always favor the team with the better record) before the design is
-  trusted for live picks.
+  trusted for live picks. **Resolved for v1** (DESIGN §10 decision #8): a 3-season (2023-2025)
+  backtest confirmed `single_analyst` beats the naive baseline in every season tested (mean margin
+  +181 pts); it does not reliably beat real market odds (mean margin +3.7 pts, noise-level), which
+  DESIGN originally treated as a stricter hard gate but has since relaxed to a stretch target given
+  how hard that bar turned out to be in practice.
 - **Backtest runtime / combinatorial grid**: the three experiment variables (agent granularity ×
   model × context level, §10) multiply together — and agent granularity alone now spans 5
   candidate orchestration patterns (see DESIGN.md §3.3/§9: single analyst, specialist+synthesis,

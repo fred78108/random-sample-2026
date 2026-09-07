@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 
 import httpx
 import ollama
+import pydantic
 import pytest
 
 from random_sample.pickem import llm
@@ -51,6 +52,53 @@ def test_retries_on_connection_error_then_succeeds():
     result = llm._invoke_with_retry(structured_llm, "prompt")
 
     assert result == "ok"
+
+
+def test_retries_on_none_result_then_succeeds():
+    """`with_structured_output` can return `None` (a parse failure) instead of raising --
+    hit for real during the Milestone F 2025 backtest against glm-5.3-flash:cloud, where it
+    crashed 3 grid cells with `AttributeError: 'NoneType' object has no attribute
+    'model_dump'` because nothing was retrying it."""
+    structured_llm = MagicMock()
+    structured_llm.invoke.side_effect = [None, "ok"]
+
+    result = llm._invoke_with_retry(structured_llm, "prompt")
+
+    assert result == "ok"
+    assert structured_llm.invoke.call_count == 2
+
+
+def test_none_result_exhausts_retries_and_raises_clear_error():
+    structured_llm = MagicMock()
+    structured_llm.invoke.return_value = None
+
+    with pytest.raises(llm.StructuredOutputParseError):
+        llm._invoke_with_retry(structured_llm, "prompt")
+
+    assert structured_llm.invoke.call_count == llm.MAX_LLM_RETRIES + 1
+
+
+def test_retries_on_validation_error_then_succeeds():
+    """A malformed function-call response (e.g. a missing required field) raises
+    `pydantic.ValidationError` from inside langchain's parser rather than returning `None`
+    -- hit for real during the Milestone F rich-tier backtest, where glm-5.3-flash:cloud
+    omitted `rationale` and this went unretried before the fix."""
+    structured_llm = MagicMock()
+
+    class _Model(pydantic.BaseModel):
+        x: int
+
+    try:
+        _Model()
+    except pydantic.ValidationError as exc:
+        validation_error = exc
+
+    structured_llm.invoke.side_effect = [validation_error, "ok"]
+
+    result = llm._invoke_with_retry(structured_llm, "prompt")
+
+    assert result == "ok"
+    assert structured_llm.invoke.call_count == 2
 
 
 def test_non_retryable_error_raises_immediately():
