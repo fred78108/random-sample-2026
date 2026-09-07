@@ -47,13 +47,19 @@ CREATE TABLE IF NOT EXISTS week_sync (
 );
 
 CREATE TABLE IF NOT EXISTS picks (
-    run_id             TEXT NOT NULL REFERENCES runs(run_id),
-    game_id            TEXT NOT NULL REFERENCES games(game_id),
-    predicted_winner   TEXT NOT NULL,
-    win_probability    REAL NOT NULL,
-    confidence         INTEGER NOT NULL,
+    run_id                TEXT NOT NULL REFERENCES runs(run_id),
+    game_id               TEXT NOT NULL REFERENCES games(game_id),
+    predicted_winner      TEXT NOT NULL,
+    win_probability       REAL NOT NULL,
+    predicted_home_score  REAL,   -- PRD FR9; nullable, only the Milestone-F-promoted strategy sets this
+    predicted_away_score  REAL,
+    confidence            INTEGER NOT NULL,
     PRIMARY KEY (run_id, game_id)
 );
+
+-- Pre-Milestone-G databases may already have a `picks` table without the score columns
+-- above (sqlite3's ADD COLUMN has no IF NOT EXISTS form) -- see repository.get_connection's
+-- runtime migration step for those.
 
 CREATE TABLE IF NOT EXISTS scores (
     run_id          TEXT NOT NULL REFERENCES runs(run_id),

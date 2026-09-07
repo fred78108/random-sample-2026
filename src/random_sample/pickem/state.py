@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 
 class RunConfig(TypedDict):
@@ -33,6 +33,8 @@ class AgentPrediction(TypedDict):
     predicted_winner: str
     win_probability: float
     rationale: str
+    predicted_home_score: NotRequired[float]   # PRD FR9, Milestone G -- only the strategy
+    predicted_away_score: NotRequired[float]   # promoted in Milestone F populates these
 
 
 class Pick(TypedDict):
@@ -40,6 +42,8 @@ class Pick(TypedDict):
     predicted_winner: str
     win_probability: float
     confidence: int             # 1..N
+    predicted_home_score: NotRequired[float]
+    predicted_away_score: NotRequired[float]
 
 
 class PickemState(TypedDict):

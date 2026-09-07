@@ -44,5 +44,10 @@ class SingleAnalystStrategy:
                 agent_design=self.name,
                 prompt_variant=prompts["id"],
                 prompt_text=prompt_text,
+                # PRD FR9 / Milestone G: `single_analyst` is the strategy promoted in
+                # Milestone F, so it's the one that captures a predicted score alongside
+                # the winner/probability -- a plain pass-through, one call per game already
+                # produces one prediction per game with no separate combination step.
+                response_schema=llm.PredictionOutputWithScore,
             )
         return predictions

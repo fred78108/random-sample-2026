@@ -35,6 +35,22 @@ def _migrate_games_table(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+# Columns added to `picks` in Milestone G (PRD FR9) -- same runtime-migration need as
+# `games` above, for pre-existing `pickem.db` files created before this milestone.
+_NEW_PICKS_COLUMNS = {
+    "predicted_home_score": "REAL",
+    "predicted_away_score": "REAL",
+}
+
+
+def _migrate_picks_table(conn: sqlite3.Connection) -> None:
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(picks)")}
+    for column, sql_type in _NEW_PICKS_COLUMNS.items():
+        if column not in existing:
+            conn.execute(f"ALTER TABLE picks ADD COLUMN {column} {sql_type}")
+    conn.commit()
+
+
 def get_connection(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
     """Open (creating if needed) the sqlite3 database and ensure the schema exists."""
     conn = sqlite3.connect(db_path)
@@ -43,6 +59,7 @@ def get_connection(db_path: Path | str = DEFAULT_DB_PATH) -> sqlite3.Connection:
     schema_sql = resources.files("random_sample.pickem.db").joinpath("schema.sql").read_text()
     conn.executescript(schema_sql)
     _migrate_games_table(conn)
+    _migrate_picks_table(conn)
     return conn
 
 
@@ -231,13 +248,21 @@ def insert_run(
     conn.commit()
 
 
+_OPTIONAL_PICK_FIELDS = ("predicted_home_score", "predicted_away_score")
+
+
 def insert_picks(conn: sqlite3.Connection, run_id: str, picks: list[Pick]) -> None:
     conn.executemany(
         """
-        INSERT INTO picks (run_id, game_id, predicted_winner, win_probability, confidence)
-        VALUES (:run_id, :game_id, :predicted_winner, :win_probability, :confidence)
+        INSERT INTO picks (run_id, game_id, predicted_winner, win_probability,
+                            predicted_home_score, predicted_away_score, confidence)
+        VALUES (:run_id, :game_id, :predicted_winner, :win_probability,
+                :predicted_home_score, :predicted_away_score, :confidence)
         """,
-        [{**pick, "run_id": run_id} for pick in picks],
+        [
+            {field: None for field in _OPTIONAL_PICK_FIELDS} | {**pick, "run_id": run_id}
+            for pick in picks
+        ],
     )
     conn.commit()
 

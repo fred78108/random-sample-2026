@@ -54,7 +54,7 @@ def _is_retryable(exc: Exception) -> bool:
     return isinstance(exc, (httpx.TransportError, ollama.RequestError, TimeoutError, ConnectionError))
 
 
-def _invoke_with_retry(structured_llm, prompt_text: str) -> "PredictionOutput":
+def _invoke_with_retry(structured_llm, prompt_text: str) -> BaseModel:
     for attempt in range(MAX_LLM_RETRIES + 1):
         try:
             result = structured_llm.invoke(prompt_text)
@@ -82,6 +82,16 @@ class PredictionOutput(BaseModel):
     rationale: str = Field(description="One- or two-sentence rationale for the pick")
 
 
+class PredictionOutputWithScore(PredictionOutput):
+    """PRD FR9 / Milestone G: adds a predicted final score per team, on top of the base
+    winner/probability/rationale output. Only used by the strategy promoted in Milestone F
+    (DESIGN §10 decision #7) -- everything else keeps using the plain `PredictionOutput`
+    schema, so their calls and cached responses are byte-for-byte unchanged."""
+
+    predicted_home_score: float = Field(description="Predicted final score for the home team", ge=0)
+    predicted_away_score: float = Field(description="Predicted final score for the away team", ge=0)
+
+
 def cache_key(
     game_id: str,
     context_hash: str,
@@ -104,6 +114,7 @@ def predict(
     agent_design: str,
     prompt_variant: str,
     prompt_text: str,
+    response_schema: type[BaseModel] = PredictionOutput,
 ) -> AgentPrediction:
     key = cache_key(game_id, context_hash, agent_design, prompt_variant, model, agent_role)
     cached = repository.get_cached_response(conn, key)
@@ -111,15 +122,22 @@ def predict(
         data = json.loads(cached)
     else:
         llm = ChatOllama(model=model, temperature=TEMPERATURE)
-        structured_llm = llm.with_structured_output(PredictionOutput, method="function_calling")
-        result: PredictionOutput = _invoke_with_retry(structured_llm, prompt_text)
+        structured_llm = llm.with_structured_output(response_schema, method="function_calling")
+        result: BaseModel = _invoke_with_retry(structured_llm, prompt_text)
         data = result.model_dump()
         repository.set_cached_response(conn, key, game_id, json.dumps(data, sort_keys=True))
 
-    return {
+    prediction: AgentPrediction = {
         "game_id": game_id,
         "agent_role": agent_role,
         "predicted_winner": data["predicted_winner"],
         "win_probability": float(data["win_probability"]),
         "rationale": data["rationale"],
     }
+    # PRD FR9 / Milestone G: only present when `response_schema` requested them
+    # (PredictionOutputWithScore) -- keeps AgentPrediction's NotRequired contract for
+    # every other caller that still uses the plain PredictionOutput schema.
+    if "predicted_home_score" in data and "predicted_away_score" in data:
+        prediction["predicted_home_score"] = float(data["predicted_home_score"])
+        prediction["predicted_away_score"] = float(data["predicted_away_score"])
+    return prediction

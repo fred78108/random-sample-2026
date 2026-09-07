@@ -392,27 +392,79 @@ registry entries before F has even named a winner would mean throwing away most 
 in `AgentPrediction`/`Pick` — only the promoted strategy is required to populate them, the rest can
 leave them unset. **This is why G is sequenced after F, not before.**
 
-- [ ] `state.py`: add `predicted_home_score`/`predicted_away_score` as `NotRequired[float]` on
+- [x] `state.py`: add `predicted_home_score`/`predicted_away_score` as `NotRequired[float]` on
       `AgentPrediction` and `Pick` (DESIGN §3.1) — optional so unrelated strategies aren't forced to
       implement them.
-- [ ] `db/schema.sql`: add nullable `predicted_home_score`/`predicted_away_score` columns to
+- [x] `db/schema.sql`: add nullable `predicted_home_score`/`predicted_away_score` columns to
       `picks`; runtime migration for existing `pickem.db` files, same `PRAGMA table_info` pattern
       as Milestone C's `games` migration (`repository._migrate_games_table`) — needed since sqlite3
-      has no `ADD COLUMN IF NOT EXISTS`.
-- [ ] Extend only the promoted strategy's prompt template(s) and structured-output schema to
+      has no `ADD COLUMN IF NOT EXISTS`. New `repository._migrate_picks_table`, called from
+      `get_connection` alongside the existing games migration; `insert_picks` updated to supply
+      `NULL` for the two new columns when a pick has no score fields at all (every non-promoted
+      strategy), same `{field: None for ...} | pick` pattern `upsert_games` already uses.
+- [x] Extend only the promoted strategy's prompt template(s) and structured-output schema to
       request `predicted_home_score`/`predicted_away_score` alongside the existing winner/
       probability/rationale fields, plus that strategy's own combination logic for the new fields
       (mirroring however it already combines `win_probability` — pass-through, weighted average,
       synthesis/judge call, whichever applies to the actual promoted design). The other 4
       strategies and 2 baselines are left untouched; add their score logic later only if a future
       backtest is specifically re-scoped to evaluate score-prediction quality.
-- [ ] `nodes/reporting.py`: add predicted-score columns to the CLI table; print the week's single
+      Implementation: `llm.py` gained a new `PredictionOutputWithScore` pydantic schema
+      (subclasses the existing `PredictionOutput`, adding `predicted_home_score`/
+      `predicted_away_score`, both `ge=0`) and `llm.predict()` gained a `response_schema` kwarg
+      (default: the original `PredictionOutput`, so every existing caller is byte-for-byte
+      unchanged) — only `strategies/single_analyst.py` (the design Milestone F promoted) passes
+      `response_schema=llm.PredictionOutputWithScore`. `predict()` only adds the two score keys to
+      the returned `AgentPrediction` when the model actually returned them, preserving the
+      `NotRequired` contract. `single_analyst`'s own combination logic is a plain pass-through (it
+      was already one LLM call per game with no separate combining step), so no new code was needed
+      there beyond requesting the richer schema. `prompts/single_analyst_v1.py`'s shared
+      `ANALYST_TEMPLATE` now also asks for a predicted final score per team — this template is
+      documented as reused verbatim by `ensemble_self_consistency`, so that strategy's prompt
+      wording changes too, but it stays functionally untouched: it still calls `llm.predict` with
+      the plain `PredictionOutput` schema (no score fields in the structured-output tool it's
+      bound to), so there is no field for the model to populate even though the prompt asks —
+      confirmed via `test_llm_predict_omits_score_fields_for_plain_schema`.
+- [x] `nodes/reporting.py`: add predicted-score columns to the CLI table; print the week's single
       highest-predicted-score team and single lowest-predicted-score team across all games (this is
       a week-wide extremum over individual team scores, not a per-game high/low — the per-game
       favorite is already implied by the winner pick). Decide and document a tie-breaking rule
       (e.g. earliest kickoff wins ties). Since only the live promoted config populates the score
       fields, this only needs to handle the `run_type="live"` path, not backtest sweeps.
-- [ ] Unit tests: schema migration and the weekly highest/lowest-score selection including the
+      Implementation: `_print_table` gained "Home Score"/"Away Score" columns (rendered as "—" for
+      any pick without scores). New `_team_score_extremes(state)` builds one entry per team per
+      game (home and away sides) from `picks` that carry score fields, and picks the single
+      highest/lowest by score with tie-break **earliest kickoff first, then team abbreviation**
+      (documented in the function's own docstring) — returns `(None, None)` when no pick in the run
+      has scores at all. The summary line is only printed for `run_type == "live"`, matching how
+      the weekly charts are already gated (DESIGN §8) since a backtest sweep isn't one coherent
+      "week's slate" and its non-promoted grid cells mostly carry no scores anyway.
+- [x] Unit tests: schema migration and the weekly highest/lowest-score selection including the
       tie-break rule, exercised against the promoted strategy's combination logic.
-- [ ] Manual smoke test: run `recommend` for a real week, confirm predicted scores print per game
+      New `tests/pickem/test_score_prediction.py` (10 tests): migrating a hand-built pre-Milestone-G
+      `picks` table (asserts existing rows survive with `NULL` new columns), `insert_picks` with and
+      without score fields, `single_analyst` requesting `PredictionOutputWithScore` and passing the
+      result straight through, `llm.predict` omitting the score keys entirely for the plain
+      `PredictionOutput` schema (the other-strategies case), `ranking_node` carrying scores through
+      into `Pick` only when present, and `_team_score_extremes`'s highest/lowest selection including
+      both tie-break levels (earliest kickoff, then same-kickoff falling back to team abbreviation)
+      and the no-scores-at-all case. Two pre-existing test fakes that fully replace `llm.predict`
+      (`test_harness.py`, `test_report.py`) needed a `response_schema=None` parameter added to their
+      signatures to match the real function's new keyword argument; all 72 pickem tests pass
+      (`python -m pytest tests/pickem/`).
+- [x] Manual smoke test: run `recommend` for a real week, confirm predicted scores print per game
       and the weekly high/low summary matches a hand-check of the printed per-game scores.
+      Ran `pickem recommend --season 2026 --week 2` against the real promoted config
+      (`single_analyst`/`single_analyst_v1`/`glm-5.3-flash:cloud`/`rich`) and the real running
+      Ollama cloud model — deliberately week 2, not week 1, since week 1's `llm_cache` already had
+      entries from Milestone F's dry run under the old (score-less) schema, and re-running week 1
+      would've silently served stale cached responses instead of exercising the new schema. All 16
+      games produced valid picks with predicted scores, e.g. `BUF 28.0 / DET 25.0`, `LAC 26.0 / LV
+      17.0`. Hand-checked both extremes against the printed table: highest was a 4-way tie at 28.0
+      (SF, LA, DAL, BUF) resolved correctly to `BUF` (kickoff-time tie-break didn't apply — DB query
+      confirmed all four share the same slate, so it fell through to alphabetical, and BUF sorts
+      first); lowest was a 2-way tie at 17.0 (ARI, LV) resolved to `LV`, confirmed against the DB
+      as the correct kickoff-time tie-break (`LV @ LAC` kicks off 16:05 ET vs. `SEA @ ARI` at 16:25
+      ET) rather than alphabetical (which would have picked ARI). Confirmed persistence: the new
+      `runs`/`picks` rows for this run have `predicted_home_score`/`predicted_away_score` populated
+      exactly matching the printed table.

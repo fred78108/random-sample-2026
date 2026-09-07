@@ -30,7 +30,10 @@ def conn(tmp_path):
 def fake_predict(monkeypatch):
     team_by_game: dict[str, tuple[str, str]] = {}
 
-    def fake(conn, *, model, agent_role, game_id, context_hash, agent_design, prompt_variant, prompt_text):
+    def fake(
+        conn, *, model, agent_role, game_id, context_hash, agent_design, prompt_variant, prompt_text,
+        response_schema=None,
+    ):
         home, _away = team_by_game[game_id]
         key = llm.cache_key(game_id, context_hash, agent_design, prompt_variant, model, agent_role)
         cached = repository.get_cached_response(conn, key)
