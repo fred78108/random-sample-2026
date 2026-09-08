@@ -24,5 +24,7 @@ def load_all() -> None:
         baseline_v1,
         debate_v1,
         single_analyst_v1,
+        single_analyst_v2,
+        single_analyst_v3,
         specialist_v1,
     )

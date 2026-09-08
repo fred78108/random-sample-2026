@@ -468,3 +468,95 @@ leave them unset. **This is why G is sequenced after F, not before.**
       ET) rather than alphabetical (which would have picked ARI). Confirmed persistence: the new
       `runs`/`picks` rows for this run have `predicted_home_score`/`predicted_away_score` populated
       exactly matching the printed table.
+
+## Milestone H — Prompt & Model Sweep (in-season improvement)
+
+Goal: try to beat the config Milestone F promoted (`single_analyst` / `single_analyst_v1` /
+`glm-5.3-flash:cloud` / `rich` — beat naive every season, mean market margin only +3.7 pts across
+2023-2025, losing outright in 2 of 3 seasons) on the two axes Rule 2/7 (README) allow mid-season:
+prompt wording and model choice. `agent_design` stays `single_analyst` throughout — Rule 4
+forbids introducing a new agent type once the season has started, and week 1 picks are already
+live in Yahoo (Milestone F).
+
+**Candidates.**
+- Prompt variants (new `prompt_variant` registry entries, same `analyst` role/output contract as
+  `single_analyst_v1` so `single_analyst`'s strategy code needs zero changes):
+  - `single_analyst_v1` (current, control).
+  - `single_analyst_v2` — structured-factor: explicitly walks the model through each context
+    category (form/stats, situational, market, head-to-head/injuries) before it commits to a
+    pick, instead of judging the raw JSON blob in one unstructured pass.
+  - `single_analyst_v3` — market-anchored: v1 already receives the market's moneylines/spread at
+    `rich` tier but never tells the model what to do with them. This variant has the model
+    explicitly compute the market-implied win probability from the moneylines first, treat it as
+    a starting estimate, and only move away from it when the rest of the context gives a
+    genuinely differentiated signal — directly targeting the market-margin gap Milestone F found.
+- Models (already pulled — user declined pulling a true local model for this sweep):
+  `glm-5.3-flash:cloud` (current), `qwen3.5:397b-cloud` (frontier-scale, likely stronger but
+  slower/costlier per call). A third candidate, `qwen3-coder-next:cloud`, was dropped after
+  Stage 1's first attempt: still listed by `ollama list` locally but the model was retired
+  server-side on 2026-07-15 — every call fails immediately with `ResponseError: ... retired ...
+  (status code: 410)`, caught by the harness's per-cell fault tolerance (Milestone F) so the
+  sweep itself didn't crash, but the model can never produce real picks. No fix available from
+  this side; just excluded from the grid.
+- 3 prompt variants × 2 live models = 6 configs, all at `context_level=rich` (unchanged from the
+  promoted config — this sweep isolates prompt/model, not context tier).
+
+**Staging** (user's choice, given Milestone F's full 3-season grid took hours of real cloud
+calls): screen all 9 configs on **2025 only** first; only the config(s) that beat both the
+2025 market and naive baselines get re-run across 2023-2025 for a promotion-grade comparison
+against Milestone F's existing 3-season numbers, mirroring exactly how F itself staged its own
+grid.
+
+- [x] Add `single_analyst_v2`/`single_analyst_v3` prompt sets + registry wiring
+      (`prompts/__init__.py`'s `load_all`). No strategy-code changes needed since `single_analyst`
+      is already prompt-agnostic. All 72 existing tests still pass; both templates verified to
+      render against a sample context dict.
+- [x] Stage 1: `pickem backtest --seasons 2025 --agent-design single_analyst --prompt-variant
+      single_analyst_v1,single_analyst_v2,single_analyst_v3 --model
+      glm-5.3-flash:cloud,qwen3.5:397b-cloud --context-level rich` (6 configs, after dropping
+      the retired `qwen3-coder-next:cloud`, see above; reused the `naive_favorite`/
+      `market_favorite` 2025 `rich`-tier baseline rows Milestone F already computed rather than
+      re-running them) → `pickem report --seasons 2025` (`reports/backtest/20260908T004202Z/report.html`).
+      Ran ~10.5 hours (9:24am-7:57pm CDT, one CLI invocation resumed after the bug below), zero
+      cloud-call cost beyond compute time. Surfaced one more real retry-classification bug the
+      same way Milestone F did: `ollama.ResponseError` can carry `status_code=-1` (observed for
+      real against `qwen3.5:397b-cloud`: `"Internal Server Error ... (status code: -1)"`), which
+      satisfied neither the `==429` nor `>=500` branch in `llm._is_retryable` and crashed 1 of 90
+      new grid cells (`single_analyst_v3`/`qwen3.5:397b-cloud`/week 18) unretried. Fixed by
+      widening the retryable check to `status_code < 0` (a client-side failure to attach a real
+      HTTP status is a transport-level failure, not a well-formed 4xx), with a regression test
+      (`test_retries_on_unknown_status_code_then_succeeds`); re-ran the same `pickem backtest`
+      command afterward and it picked up only the 1 missing cell via existing grid-cell
+      idempotency (107 cells already done, 1 completed). All 73 tests pass.
+      **2025 leaderboard, the 6 Milestone H cells** (full 17-row leaderboard in the report;
+      `market_favorite`=1577, `naive_favorite`=1453 unchanged from Milestone F):
+      | prompt_variant | model | points | vs. market | vs. naive | vs. promoted config |
+      |---|---|---|---|---|---|
+      | `single_analyst_v1` (promoted) | `glm-5.3-flash:cloud` (promoted) | **1602** | +25 | +149 | — |
+      | `single_analyst_v2` | `qwen3.5:397b-cloud` | 1594 | +17 | +141 | -8 |
+      | `single_analyst_v3` | `glm-5.3-flash:cloud` | 1585 | +8 | +132 | -17 |
+      | `single_analyst_v3` | `qwen3.5:397b-cloud` | 1585 | +8 | +132 | -17 |
+      | `single_analyst_v2` | `glm-5.3-flash:cloud` | 1583 | +6 | +130 | -19 |
+      | `single_analyst_v1` | `qwen3.5:397b-cloud` | 1566 | **-11** | +113 | -36 |
+      **No candidate beat the promoted config on 2025.** Two notable patterns: (1) the
+      market-anchored prompt (`v3`) actually *reduced* points relative to `v1` on both models —
+      forcing an explicit anchor to the market line seems to have suppressed whatever edge the
+      unconstrained analyst already had over the market, the opposite of the intended effect; (2)
+      the larger `qwen3.5:397b-cloud` model was not uniformly better or worse than
+      `glm-5.3-flash:cloud` — it paired best with the structured-factor prompt (`v2`, its single
+      best result) and worst with the unmodified baseline prompt (`v1`, its only result that
+      loses to market), plus produced far more structured-output parse retries throughout the
+      run (~90+ vs. `glm-5.3-flash`'s near-zero in Milestone F), suggesting real reliability cost
+      for an unclear reasoning-quality benefit on this task.
+      **Decision** (user, given this evidence): conclude Milestone H without a promotion rather
+      than spend a further 3-season sweep confirming the closest (still-trailing) candidate or
+      designing new ones. `config.toml` is unchanged — `single_analyst` / `single_analyst_v1` /
+      `glm-5.3-flash:cloud` / `rich` remains promoted. The new `single_analyst_v2`/
+      `single_analyst_v3` prompt sets and the `_is_retryable` fix stay in the codebase (inert
+      unless selected into `config.toml`) as a documented, negative-but-informative result: two
+      concrete ideas for beating the promoted config — anchoring the model explicitly to the
+      market line, and swapping to a much larger model — were tried and both underperformed on a
+      real season, which is itself useful evidence that the current config is not leaving obvious
+      value on the table. Re-opening this sweep later (a new candidate, or widening the current
+      one to more seasons) remains available as a future mid-season prompt/model update under
+      Rules 2/7.

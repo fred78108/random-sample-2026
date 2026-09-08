@@ -78,6 +78,23 @@ def test_none_result_exhausts_retries_and_raises_clear_error():
     assert structured_llm.invoke.call_count == llm.MAX_LLM_RETRIES + 1
 
 
+def test_retries_on_unknown_status_code_then_succeeds():
+    """`ollama.ResponseError` can carry `status_code=-1` when the client can't attach a real
+    HTTP status to the failure -- hit for real during the Milestone H 2025 backtest against
+    qwen3.5:397b-cloud ("Internal Server Error (ref: ...) (status code: -1)"), which went
+    unretried before the fix since -1 satisfied neither the ==429 nor >=500 branch."""
+    structured_llm = MagicMock()
+    structured_llm.invoke.side_effect = [
+        ollama.ResponseError("Internal Server Error", status_code=-1),
+        "ok",
+    ]
+
+    result = llm._invoke_with_retry(structured_llm, "prompt")
+
+    assert result == "ok"
+    assert structured_llm.invoke.call_count == 2
+
+
 def test_retries_on_validation_error_then_succeeds():
     """A malformed function-call response (e.g. a missing required field) raises
     `pydantic.ValidationError` from inside langchain's parser rather than returning `None`

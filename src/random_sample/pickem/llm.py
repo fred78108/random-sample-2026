@@ -45,9 +45,13 @@ def _is_retryable(exc: Exception) -> bool:
         # omitting `rationale` during the Milestone F 2025 rich-tier backtest.
         return True
     if isinstance(exc, ollama.ResponseError):
-        # 429 = throttled; 5xx = transient upstream failure. 4xx other than 429 (bad
-        # request, model not found, etc.) is not something a retry will fix.
-        return exc.status_code == 429 or exc.status_code >= 500
+        # 429 = throttled; 5xx = transient upstream failure. A negative status_code means
+        # the client couldn't attach a real HTTP status at all (observed for real during the
+        # Milestone H 2025 backtest against qwen3.5:397b-cloud: "Internal Server Error"
+        # surfaced with status_code=-1) -- that's a transport-level failure, not a
+        # well-formed 4xx client error, so it's retried the same as 5xx. 4xx other than 429
+        # (bad request, model not found, etc.) is not something a retry will fix.
+        return exc.status_code == 429 or exc.status_code >= 500 or exc.status_code < 0
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         return status == 429 or status >= 500
