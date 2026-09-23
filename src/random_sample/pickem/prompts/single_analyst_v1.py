@@ -18,7 +18,9 @@ Based only on this context, decide which team is more likely to win and estimate
 confidence as a win probability for that team. Also predict the final score for each team.
 Respond with the predicted winner's team abbreviation, a win probability between 0.5 and 1.0,
 a predicted final score for the home team, a predicted final score for the away team, and a
-one- or two-sentence rationale."""
+one- or two-sentence rationale.
+
+All five fields are required. Do not omit the rationale -- always include it, even briefly."""
 
 register_prompt_set(
     {

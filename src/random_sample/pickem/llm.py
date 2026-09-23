@@ -83,7 +83,16 @@ def _invoke_with_retry(structured_llm, prompt_text: str) -> BaseModel:
 class PredictionOutput(BaseModel):
     predicted_winner: str = Field(description="Team abbreviation of the predicted winner")
     win_probability: float = Field(description="Win probability for the predicted winner, in [0.5, 1.0]")
-    rationale: str = Field(description="One- or two-sentence rationale for the pick")
+    # Explicitly flagged as required in its own description, not just via Pydantic's required-
+    # field machinery -- `glm-5.3-flash:cloud` has been observed (Milestone F/H backtests)
+    # silently omitting this argument from the function call while still filling in every
+    # other field, including ones declared after it, so the schema itself needs to say so.
+    rationale: str = Field(
+        description=(
+            "One- or two-sentence rationale for the pick. Required: this argument must "
+            "always be included in the function call, never omitted."
+        )
+    )
 
 
 class PredictionOutputWithScore(PredictionOutput):
@@ -126,6 +135,12 @@ def predict(
         data = json.loads(cached)
     else:
         llm = ChatOllama(model=model, temperature=TEMPERATURE)
+        # `method="json_schema"` (langchain-ollama's own default) was tried here as a fix for
+        # the rationale-dropping flake below, but `glm-5.3-flash:cloud` doesn't honor Ollama's
+        # native structured-output API -- it ignored the schema entirely and returned prose
+        # instead of JSON, which isn't even retryable (`OutputParserException` isn't in
+        # `_is_retryable`), so it's a harder failure than the flake it was meant to fix.
+        # `function_calling` is what this cloud model actually respects.
         structured_llm = llm.with_structured_output(response_schema, method="function_calling")
         result: BaseModel = _invoke_with_retry(structured_llm, prompt_text)
         data = result.model_dump()
